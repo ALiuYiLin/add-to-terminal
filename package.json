@@ -11,7 +11,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:addToTerminal.addReference"
+    "onCommand:addToTerminal.addReference",
+    "onCommand:addToTerminal.addFile"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -19,6 +20,10 @@
       {
         "command": "addToTerminal.addReference",
         "title": "Add to Terminal: File Reference"
+      },
+      {
+        "command": "addToTerminal.addFile",
+        "title": "Add to Terminal: File Path"
       }
     ],
     "menus": {
@@ -27,6 +32,13 @@
           "command": "addToTerminal.addReference",
           "group": "navigation",
           "when": "editorTextFocus"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "addToTerminal.addFile",
+          "group": "navigation",
+          "when": "resourceScheme == file"
         }
       ]
     },

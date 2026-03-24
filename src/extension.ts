@@ -10,7 +10,13 @@ export function activate(context: vscode.ExtensionContext) {
         () => addReferenceToTerminal()
     );
 
-    context.subscriptions.push(addReferenceCmd);
+    // Command: Add file path from explorer context menu
+    const addFileCmd = vscode.commands.registerCommand(
+        'addToTerminal.addFile',
+        (uri: vscode.Uri) => addFileToTerminal(uri)
+    );
+
+    context.subscriptions.push(addReferenceCmd, addFileCmd);
 }
 
 /**
@@ -21,6 +27,16 @@ function getFormattedFilePath(editor: vscode.TextEditor): string {
     const pathFormat = config.get<string>('pathFormat', 'relative');
     const filePath = editor.document.uri.fsPath;
 
+    return formatPath(filePath, editor.document.uri);
+}
+
+/**
+ * Format file path based on configuration
+ */
+function formatPath(filePath: string, uri: vscode.Uri): string {
+    const config = vscode.workspace.getConfiguration('addToTerminal');
+    const pathFormat = config.get<string>('pathFormat', 'relative');
+
     switch (pathFormat) {
         case 'absolute':
             return filePath;
@@ -28,7 +44,7 @@ function getFormattedFilePath(editor: vscode.TextEditor): string {
             return path.basename(filePath);
         case 'relative':
         default:
-            const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
             if (workspaceFolder) {
                 return path.relative(workspaceFolder.uri.fsPath, filePath);
             }
@@ -97,6 +113,20 @@ function addReferenceToTerminal(): void {
 
     const reference = formatLineReference(filePath, startLine, endLine);
     sendToTerminal(reference);
+}
+
+/**
+ * Add file path from explorer context menu
+ * Called when right-clicking a file in the explorer
+ */
+function addFileToTerminal(uri: vscode.Uri): void {
+    if (!uri) {
+        vscode.window.showWarningMessage('No file selected');
+        return;
+    }
+
+    const filePath = formatPath(uri.fsPath, uri);
+    sendToTerminal(filePath);
 }
 
 export function deactivate() {
