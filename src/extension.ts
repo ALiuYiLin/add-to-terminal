@@ -83,33 +83,47 @@ function formatFileReference(filePath: string): string {
 /**
  * Add file reference to terminal
  *
- * When invoked from Explorer context (arg1 is a URI or array of URIs):
+ * When invoked from Explorer context (URIs provided):
  *   outputs backtick-wrapped file paths, comma-separated for multiple files
  *
- * When invoked from Editor context (no URI args):
+ * When invoked from Editor context (URI matches active editor):
  *   outputs backtick-wrapped `filePath:startLine-endLine`
  */
 function addReferenceToTerminal(
     arg1?: vscode.Uri | vscode.Uri[],
     arg2?: vscode.Uri[]
 ): void {
-    // Resolve URIs passed from VS Code (editor/context or explorer/context)
-    let uris: vscode.Uri[] | undefined;
-
-    if (Array.isArray(arg1)) {
-        uris = arg1;
-    } else if (arg1 instanceof vscode.Uri) {
-        // Multi-select in Explorer passes (firstUri, allUris) in newer VS Code
-        uris = arg2 && arg2.length > 0 ? arg2 : [arg1];
+    // Flatten all arguments into a URI list (handles various VS Code arg-passing patterns)
+    const rawArgs: unknown[] = [arg1, arg2];
+    const flat: vscode.Uri[] = [];
+    for (const a of rawArgs) {
+        if (a instanceof vscode.Uri) {
+            flat.push(a);
+        } else if (Array.isArray(a)) {
+            for (const item of a) {
+                if (item instanceof vscode.Uri) {
+                    flat.push(item);
+                }
+            }
+        }
+    }
+    // Deduplicate by fsPath
+    const seen = new Set<string>();
+    const uris: vscode.Uri[] = [];
+    for (const u of flat) {
+        if (!seen.has(u.fsPath)) {
+            seen.add(u.fsPath);
+            uris.push(u);
+        }
     }
 
-    // --- Editor context: active editor has focus, show file:line-range ---
+    // --- Editor context: single URI matching active editor, show file:line-range ---
     const editor = vscode.window.activeTextEditor;
-    const receivedUriFromEditor =
-        editor && uris && uris.length === 1 &&
+    const isEditorContext =
+        editor && uris.length === 1 &&
         uris[0].fsPath === editor.document.uri.fsPath;
 
-    if (receivedUriFromEditor) {
+    if (isEditorContext) {
         const filePath = getFormattedPathFromUri(editor.document.uri);
         const selection = editor.selection;
         const startLine = selection.start.line;
@@ -118,8 +132,8 @@ function addReferenceToTerminal(
         return;
     }
 
-    // --- Explorer context: file(s) selected, show file path(s) only ---
-    if (uris && uris.length > 0) {
+    // --- Explorer context: file(s) from Explorer, show path(s) only ---
+    if (uris.length > 0) {
         const refs = uris.map(u => formatFileReference(getFormattedPathFromUri(u)));
         sendToTerminal(refs.join(', '));
         return;
