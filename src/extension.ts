@@ -9,7 +9,18 @@ export function activate(context: vscode.ExtensionContext) {
         (arg1?: vscode.Uri | vscode.Uri[], arg2?: vscode.Uri[]) => addReferenceToTerminal(arg1, arg2)
     );
 
-    context.subscriptions.push(addReferenceCmd);
+    const sendDiagnosticCmd = vscode.commands.registerCommand(
+        'addToTerminal.sendDiagnostic',
+        (uri: vscode.Uri, message: string, severity: vscode.DiagnosticSeverity, line: number) =>
+            sendDiagnosticToTerminal(uri, message, severity, line)
+    );
+
+    const codeActionProvider = vscode.languages.registerCodeActionsProvider(
+        { pattern: '**/*' },
+        new AddToTerminalCodeActionProvider()
+    );
+
+    context.subscriptions.push(addReferenceCmd, sendDiagnosticCmd, codeActionProvider);
 }
 
 /**
@@ -62,6 +73,37 @@ async function sendToTerminal(text: string): Promise<void> {
 }
 
 /**
+ * Get diagnostics that overlap the cursor position
+ */
+function getDiagnosticsAtCursor(editor: vscode.TextEditor): vscode.Diagnostic[] {
+    const cursor = editor.selection.active;
+    return vscode.languages.getDiagnostics(editor.document.uri)
+        .filter(d => d.range.contains(cursor));
+}
+
+/**
+ * Map diagnostic severity to a short label
+ */
+function severityLabel(severity: vscode.DiagnosticSeverity): string {
+    switch (severity) {
+        case vscode.DiagnosticSeverity.Error: return 'error';
+        case vscode.DiagnosticSeverity.Warning: return 'warning';
+        case vscode.DiagnosticSeverity.Information: return 'info';
+        case vscode.DiagnosticSeverity.Hint: return 'hint';
+        default: return 'diagnostic';
+    }
+}
+
+/**
+ * Format diagnostic messages suffix: " error: msg1 | warning: msg2"
+ */
+function formatDiagnosticSuffix(diagnostics: vscode.Diagnostic[]): string {
+    if (diagnostics.length === 0) { return ''; }
+    const parts = diagnostics.map(d => `${severityLabel(d.severity)}: ${d.message}`);
+    return ' ' + parts.join(' | ');
+}
+
+/**
  * Format line reference: `filePath:startLine-endLine`
  */
 function formatLineReference(filePath: string, startLine: number, endLine?: number): string {
@@ -78,6 +120,52 @@ function formatLineReference(filePath: string, startLine: number, endLine?: numb
  */
 function formatFileReference(filePath: string): string {
     return `\`${filePath}\``;
+}
+
+/**
+ * Code Action Provider: adds "Add to Terminal" to the Quick Fix (lightbulb) menu
+ * for each diagnostic at the cursor position.
+ */
+class AddToTerminalCodeActionProvider implements vscode.CodeActionProvider {
+    provideCodeActions(
+        _document: vscode.TextDocument,
+        _range: vscode.Range | vscode.Selection,
+        context: vscode.CodeActionContext,
+        _token: vscode.CancellationToken
+    ): vscode.CodeAction[] {
+        return context.diagnostics.map(diagnostic => {
+            const label = severityLabel(diagnostic.severity);
+            const title = `Add to Terminal: ${label}: ${diagnostic.message}`;
+            const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+            action.command = {
+                command: 'addToTerminal.sendDiagnostic',
+                title: 'Add to Terminal',
+                arguments: [
+                    _document.uri,
+                    diagnostic.message,
+                    diagnostic.severity,
+                    diagnostic.range.start.line
+                ]
+            };
+            return action;
+        });
+    }
+}
+
+/**
+ * Send a single diagnostic to the terminal (invoked from Quick Fix code action).
+ * Output format: `filePath:line` error: message
+ */
+function sendDiagnosticToTerminal(
+    uri: vscode.Uri,
+    message: string,
+    severity: vscode.DiagnosticSeverity,
+    line: number
+): void {
+    const filePath = getFormattedPathFromUri(uri);
+    const displayLine = line + 1; // 0-based → 1-based
+    const label = severityLabel(severity);
+    sendToTerminal(`\`${filePath}:${displayLine}\` ${label}: ${message}`);
 }
 
 /**
@@ -128,7 +216,9 @@ function addReferenceToTerminal(
         const selection = editor.selection;
         const startLine = selection.start.line;
         const endLine = selection.end.line;
-        sendToTerminal(formatLineReference(filePath, startLine, endLine));
+        const ref = formatLineReference(filePath, startLine, endLine);
+        const suffix = formatDiagnosticSuffix(getDiagnosticsAtCursor(editor));
+        sendToTerminal(ref + suffix);
         return;
     }
 
@@ -149,7 +239,9 @@ function addReferenceToTerminal(
     const selection = editor.selection;
     const startLine = selection.start.line;
     const endLine = selection.end.line;
-    sendToTerminal(formatLineReference(filePath, startLine, endLine));
+    const ref = formatLineReference(filePath, startLine, endLine);
+    const suffix = formatDiagnosticSuffix(getDiagnosticsAtCursor(editor));
+    sendToTerminal(ref + suffix);
 }
 
 export function deactivate() {

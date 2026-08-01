@@ -19,6 +19,10 @@
       {
         "command": "addToTerminal.addReference",
         "title": "Add to Terminal: File Reference"
+      },
+      {
+        "command": "addToTerminal.sendDiagnostic",
+        "title": "Add to Terminal: Diagnostic"
       }
     ],
     "menus": {
