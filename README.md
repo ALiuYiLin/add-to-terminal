@@ -80,12 +80,15 @@
 
 ## 安装
 
-```bash
-npm install
-npm run compile
-```
+### 从 VS Code 插件市场安装（推荐）
 
-按 `F5` 启动调试，或执行 `npm run package` 打包为 `.vsix` 文件安装。
+1. 打开 VS Code，按 `Ctrl+Shift+X` 打开扩展面板
+2. 搜索 **"Add to Terminal"**
+3. 点击 **Install** 安装
+4. 安装后自动启用，无需额外配置
+
+或者直接访问：[VS Code Marketplace - Add to Terminal](https://marketplace.visualstudio.com/items?itemName=EeLynn.add-to-terminal)
+
 
 ## 为什么用 Add to Terminal？
 

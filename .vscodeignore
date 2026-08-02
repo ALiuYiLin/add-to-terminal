@@ -1,10 +1,10 @@
 .vscode/**
 .git/**
+.gitignore
+.claude/**
 node_modules/**
 src/**
+*.ts
 tsconfig.json
-.gitignore
 .eslintrc.json
-**/*.ts
-**/tsconfig.json
 !out/**
