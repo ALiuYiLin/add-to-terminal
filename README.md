@@ -2,6 +2,8 @@
 
 > 一键将文件引用、选中代码行范围、编译报错信息发送到终端，专为 [Claude Code CLI](https://claude.com/claude-code) 工作流优化。
 
+![demo](demo.gif)
+
 ## 痛点分析
 
 在使用 Claude Code 等终端 AI 编程工具时，最常见的操作是让 AI 帮你**定位问题、修改代码、修复报错**。但每次你都需要手动完成以下步骤：
