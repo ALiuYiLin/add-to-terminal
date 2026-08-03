@@ -1,12 +1,20 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
+/** The most recently focused terminal, if any. */
+let lastActiveTerminal: vscode.Terminal | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Add to Terminal extension is now active!');
 
     const addReferenceCmd = vscode.commands.registerCommand(
         'addToTerminal.addReference',
-        (arg1?: vscode.Uri | vscode.Uri[], arg2?: vscode.Uri[]) => addReferenceToTerminal(arg1, arg2)
+        () => addReferenceToTerminal()
+    );
+
+    const addFileReferenceCmd = vscode.commands.registerCommand(
+        'addToTerminal.addFileReference',
+        (uri?: vscode.Uri, selectedUris?: vscode.Uri[]) => addFileReferenceToTerminal(uri, selectedUris)
     );
 
     const sendDiagnosticCmd = vscode.commands.registerCommand(
@@ -20,7 +28,16 @@ export function activate(context: vscode.ExtensionContext) {
         new AddToTerminalCodeActionProvider()
     );
 
-    context.subscriptions.push(addReferenceCmd, sendDiagnosticCmd, codeActionProvider);
+    context.subscriptions.push(
+        addReferenceCmd,
+        addFileReferenceCmd,
+        sendDiagnosticCmd,
+        codeActionProvider,
+        vscode.window.onDidChangeActiveTerminal(t => { lastActiveTerminal = t; }),
+        vscode.window.onDidCloseTerminal(t => {
+            if (lastActiveTerminal === t) { lastActiveTerminal = undefined; }
+        })
+    );
 }
 
 /**
@@ -31,25 +48,34 @@ function getFormattedPathFromUri(uri: vscode.Uri): string {
     const pathFormat = config.get<string>('pathFormat', 'relative');
     const filePath = uri.fsPath;
 
+    let formatted: string;
     switch (pathFormat) {
         case 'absolute':
-            return filePath;
+            formatted = filePath;
+            break;
         case 'basename':
-            return path.basename(filePath);
+            formatted = path.basename(filePath);
+            break;
         case 'relative':
         default:
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
-            if (workspaceFolder) {
-                return path.relative(workspaceFolder.uri.fsPath, filePath);
-            }
-            return filePath;
+            formatted = workspaceFolder ? path.relative(workspaceFolder.uri.fsPath, filePath) : filePath;
+            break;
     }
+
+    // Normalize to forward slashes: backslashes would break shell escaping
+    // and Claude Code's clickable path references on Windows.
+    return formatted.replace(/\\/g, '/');
 }
 
 /**
  * Get the terminal to use (existing or new)
  */
 async function getTerminal(): Promise<vscode.Terminal> {
+    if (lastActiveTerminal) {
+        return lastActiveTerminal;
+    }
+
     const activeTerminal = vscode.window.activeTerminal;
     if (activeTerminal) {
         return activeTerminal;
@@ -67,18 +93,24 @@ async function getTerminal(): Promise<vscode.Terminal> {
  * Send text to terminal without executing (no newline)
  */
 async function sendToTerminal(text: string): Promise<void> {
-    const terminal = await getTerminal();
-    terminal.show();
-    terminal.sendText(text, false);
+    try {
+        const terminal = await getTerminal();
+        terminal.show();
+        terminal.sendText(text, false);
+    } catch (err) {
+        vscode.window.showErrorMessage(
+            `Failed to send to terminal: ${err instanceof Error ? err.message : String(err)}`
+        );
+    }
 }
 
 /**
- * Get diagnostics that overlap the cursor position
+ * Get diagnostics that overlap the current selection(s).
  */
-function getDiagnosticsAtCursor(editor: vscode.TextEditor): vscode.Diagnostic[] {
-    const cursor = editor.selection.active;
+function getDiagnosticsInSelection(editor: vscode.TextEditor): vscode.Diagnostic[] {
+    const selections = editor.selections;
     return vscode.languages.getDiagnostics(editor.document.uri)
-        .filter(d => d.range.contains(cursor));
+        .filter(d => selections.some(s => s.intersection(d.range) !== undefined));
 }
 
 /**
@@ -95,11 +127,24 @@ function severityLabel(severity: vscode.DiagnosticSeverity): string {
 }
 
 /**
+ * Sanitize a diagnostic message so it can't break the backtick reference or
+ * inject extra lines into the terminal.
+ */
+function sanitizeMessage(message: string): string {
+    const cleaned = message
+        .replace(/`/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    const maxLength = 200;
+    return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}…` : cleaned;
+}
+
+/**
  * Format diagnostic messages suffix: " error: msg1 | warning: msg2"
  */
 function formatDiagnosticSuffix(diagnostics: vscode.Diagnostic[]): string {
     if (diagnostics.length === 0) { return ''; }
-    const parts = diagnostics.map(d => `${severityLabel(d.severity)}: ${d.message}`);
+    const parts = diagnostics.map(d => `${severityLabel(d.severity)}: ${sanitizeMessage(d.message)}`);
     return ' ' + parts.join(' | ');
 }
 
@@ -162,39 +207,76 @@ function sendDiagnosticToTerminal(
     severity: vscode.DiagnosticSeverity,
     line: number
 ): void {
+    if (!(uri instanceof vscode.Uri)) {
+        vscode.window.showWarningMessage('This command can only be used from the Quick Fix menu.');
+        return;
+    }
+
     const filePath = getFormattedPathFromUri(uri);
     const displayLine = line + 1; // 0-based → 1-based
     const label = severityLabel(severity);
-    sendToTerminal(`\`${filePath}:${displayLine}\` ${label}: ${message}`);
+    sendToTerminal(`\`${filePath}:${displayLine}\` ${label}: ${sanitizeMessage(message)}`);
 }
 
 /**
- * Add file reference to terminal
+ * Get the inclusive line range covered by a selection.
  *
- * When invoked from Explorer context (URIs provided):
- *   outputs backtick-wrapped file paths, comma-separated for multiple files
- *
- * When invoked from Editor context (URI matches active editor):
- *   outputs backtick-wrapped `filePath:startLine-endLine`
+ * A VS Code selection that ends at column 0 of a line does not actually
+ * include that line, so subtract one to avoid reporting one extra line.
  */
-function addReferenceToTerminal(
-    arg1?: vscode.Uri | vscode.Uri[],
-    arg2?: vscode.Uri[]
-): void {
-    // Flatten all arguments into a URI list (handles various VS Code arg-passing patterns)
-    const rawArgs: unknown[] = [arg1, arg2];
+function selectionLineRange(selection: vscode.Selection): { start: number; end: number } {
+    const start = selection.start.line;
+    let end = selection.end.line;
+    if (end > start && selection.end.character === 0) {
+        end -= 1;
+    }
+    return { start, end };
+}
+
+/**
+ * Add the active editor's file + selected line range to the terminal.
+ *
+ * Invoked from the editor context menu or the Ctrl+Alt+T keybinding.
+ * Outputs `filePath:startLine-endLine` plus any diagnostics at the cursor.
+ */
+function addReferenceToTerminal(): void {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showWarningMessage('No active editor');
+        return;
+    }
+
+    if (editor.document.uri.scheme !== 'file') {
+        vscode.window.showWarningMessage('Cannot add reference: the active editor is not a file on disk.');
+        return;
+    }
+
+    const filePath = getFormattedPathFromUri(editor.document.uri);
+    const { start, end } = selectionLineRange(editor.selection);
+    const ref = formatLineReference(filePath, start, end);
+    const suffix = formatDiagnosticSuffix(getDiagnosticsInSelection(editor));
+    sendToTerminal(ref + suffix);
+}
+
+/**
+ * Add plain file path reference(s) to the terminal.
+ *
+ * Invoked from the Explorer context menu.
+ * Outputs backtick-wrapped file paths, comma-separated for multiple files.
+ */
+function addFileReferenceToTerminal(uri?: vscode.Uri, selectedUris?: vscode.Uri[]): void {
     const flat: vscode.Uri[] = [];
-    for (const a of rawArgs) {
-        if (a instanceof vscode.Uri) {
-            flat.push(a);
-        } else if (Array.isArray(a)) {
-            for (const item of a) {
-                if (item instanceof vscode.Uri) {
-                    flat.push(item);
-                }
+    if (uri instanceof vscode.Uri) {
+        flat.push(uri);
+    }
+    if (Array.isArray(selectedUris)) {
+        for (const item of selectedUris) {
+            if (item instanceof vscode.Uri) {
+                flat.push(item);
             }
         }
     }
+
     // Deduplicate by fsPath
     const seen = new Set<string>();
     const uris: vscode.Uri[] = [];
@@ -205,43 +287,13 @@ function addReferenceToTerminal(
         }
     }
 
-    // --- Editor context: single URI matching active editor, show file:line-range ---
-    const editor = vscode.window.activeTextEditor;
-    const isEditorContext =
-        editor && uris.length === 1 &&
-        uris[0].fsPath === editor.document.uri.fsPath;
-
-    if (isEditorContext) {
-        const filePath = getFormattedPathFromUri(editor.document.uri);
-        const selection = editor.selection;
-        const startLine = selection.start.line;
-        const endLine = selection.end.line;
-        const ref = formatLineReference(filePath, startLine, endLine);
-        const suffix = formatDiagnosticSuffix(getDiagnosticsAtCursor(editor));
-        sendToTerminal(ref + suffix);
+    if (uris.length === 0) {
+        vscode.window.showWarningMessage('No files selected');
         return;
     }
 
-    // --- Explorer context: file(s) from Explorer, show path(s) only ---
-    if (uris.length > 0) {
-        const refs = uris.map(u => formatFileReference(getFormattedPathFromUri(u)));
-        sendToTerminal(refs.join(', '));
-        return;
-    }
-
-    // --- Fallback: no URI, use active editor ---
-    if (!editor) {
-        vscode.window.showWarningMessage('No active editor');
-        return;
-    }
-
-    const filePath = getFormattedPathFromUri(editor.document.uri);
-    const selection = editor.selection;
-    const startLine = selection.start.line;
-    const endLine = selection.end.line;
-    const ref = formatLineReference(filePath, startLine, endLine);
-    const suffix = formatDiagnosticSuffix(getDiagnosticsAtCursor(editor));
-    sendToTerminal(ref + suffix);
+    const refs = uris.map(u => formatFileReference(getFormattedPathFromUri(u)));
+    sendToTerminal(refs.join(', '));
 }
 
 export function deactivate() {

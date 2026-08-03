@@ -29,8 +29,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:addToTerminal.addReference",
-    "onCommand:addToTerminal.sendDiagnostic"
+    "*"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -38,6 +37,10 @@
       {
         "command": "addToTerminal.addReference",
         "title": "Add to Terminal: File Reference"
+      },
+      {
+        "command": "addToTerminal.addFileReference",
+        "title": "Add to Terminal: File Path"
       },
       {
         "command": "addToTerminal.sendDiagnostic",
@@ -54,8 +57,18 @@
       ],
       "explorer/context": [
         {
-          "command": "addToTerminal.addReference",
+          "command": "addToTerminal.addFileReference",
           "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "addToTerminal.addFileReference",
+          "when": "false"
+        },
+        {
+          "command": "addToTerminal.sendDiagnostic",
+          "when": "false"
         }
       ]
     },
