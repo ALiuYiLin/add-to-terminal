@@ -11,8 +11,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:addToTerminal.addReference",
-    "onCommand:addToTerminal.addFile"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -71,7 +70,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
-    "lint": "eslint src --ext ts"
+    "lint": "eslint src --ext ts",
+    "package": "vsce package --allow-missing-repository"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

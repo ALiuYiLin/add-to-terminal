@@ -16,7 +16,67 @@ export function activate(context: vscode.ExtensionContext) {
         (uri: vscode.Uri) => addFileToTerminal(uri)
     );
 
-    context.subscriptions.push(addReferenceCmd, addFileCmd);
+    // Command: Add diagnostic to terminal (from quick fix)
+    const addDiagnosticCmd = vscode.commands.registerCommand(
+        'addToTerminal.addDiagnostic',
+        (args: { file: string; line: number; message: string }) => {
+            const text = `${args.file}:${args.line} ${args.message}`;
+            sendToTerminal(text);
+        }
+    );
+
+    // Register CodeActionProvider for quick fix
+    const codeActionProvider = vscode.languages.registerCodeActionsProvider(
+        { scheme: 'file' },
+        new DiagnosticCodeActionProvider(),
+        { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
+    );
+
+    context.subscriptions.push(addReferenceCmd, addFileCmd, addDiagnosticCmd, codeActionProvider);
+}
+
+/**
+ * CodeActionProvider to add "Add to Terminal" quick fix for diagnostics
+ */
+class DiagnosticCodeActionProvider implements vscode.CodeActionProvider {
+    provideCodeActions(
+        document: vscode.TextDocument,
+        range: vscode.Range | vscode.Selection,
+        context: vscode.CodeActionContext
+    ): vscode.CodeAction[] {
+        const actions: vscode.CodeAction[] = [];
+
+        for (const diagnostic of context.diagnostics) {
+            const action = new vscode.CodeAction(
+                `Add to Terminal: ${this.truncateMessage(diagnostic.message)}`,
+                vscode.CodeActionKind.QuickFix
+            );
+
+            const filePath = formatPath(document.uri.fsPath, document.uri);
+            const line = diagnostic.range.start.line + 1;
+
+            action.command = {
+                command: 'addToTerminal.addDiagnostic',
+                title: 'Add to Terminal',
+                arguments: [{
+                    file: filePath,
+                    line: line,
+                    message: diagnostic.message
+                }]
+            };
+
+            actions.push(action);
+        }
+
+        return actions;
+    }
+
+    private truncateMessage(message: string, maxLength: number = 50): string {
+        if (message.length <= maxLength) {
+            return message;
+        }
+        return message.substring(0, maxLength - 3) + '...';
+    }
 }
 
 /**
