@@ -2,7 +2,7 @@
   "name": "add-to-terminal",
   "displayName": "Add to Terminal",
   "description": "One-click send file references, line ranges, and diagnostics to the terminal — optimized for Claude Code CLI workflows",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "EeLynn",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,10 @@
     "Other"
   ],
   "activationEvents": [
-    "*"
+    "onStartupFinished",
+    "onCommand:addToTerminal.addReference",
+    "onCommand:addToTerminal.addFileReference",
+    "onCommand:addToTerminal.sendDiagnostic"
   ],
   "main": "./out/extension.js",
   "contributes": {
