@@ -2,7 +2,7 @@
   "name": "add-to-terminal",
   "displayName": "Add to Terminal",
   "description": "One-click send file references, line ranges, and diagnostics to the terminal — optimized for Claude Code CLI workflows",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "EeLynn",
   "license": "MIT",
   "repository": {

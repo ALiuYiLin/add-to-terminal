@@ -57,10 +57,11 @@ function getFormattedPathFromUri(uri: vscode.Uri): string {
             formatted = path.basename(filePath);
             break;
         case 'relative':
-        default:
+        default: {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
             formatted = workspaceFolder ? path.relative(workspaceFolder.uri.fsPath, filePath) : filePath;
             break;
+        }
     }
 
     // Normalize to forward slashes: backslashes would break shell escaping
@@ -105,12 +106,11 @@ async function sendToTerminal(text: string): Promise<void> {
 }
 
 /**
- * Get diagnostics that overlap the current selection(s).
+ * Get diagnostics that overlap the given range.
  */
-function getDiagnosticsInSelection(editor: vscode.TextEditor): vscode.Diagnostic[] {
-    const selections = editor.selections;
-    return vscode.languages.getDiagnostics(editor.document.uri)
-        .filter(d => selections.some(s => s.intersection(d.range) !== undefined));
+function getDiagnosticsInRange(uri: vscode.Uri, range: vscode.Range): vscode.Diagnostic[] {
+    return vscode.languages.getDiagnostics(uri)
+        .filter(d => range.intersection(d.range) !== undefined);
 }
 
 /**
@@ -139,13 +139,30 @@ function sanitizeMessage(message: string): string {
     return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}…` : cleaned;
 }
 
+const MAX_DIAGNOSTICS = 5;
+
 /**
  * Format diagnostic messages suffix: " error: msg1 | warning: msg2"
+ * Duplicates are removed and the total is capped to keep the terminal input readable.
  */
 function formatDiagnosticSuffix(diagnostics: vscode.Diagnostic[]): string {
     if (diagnostics.length === 0) { return ''; }
-    const parts = diagnostics.map(d => `${severityLabel(d.severity)}: ${sanitizeMessage(d.message)}`);
-    return ' ' + parts.join(' | ');
+    const seen = new Set<string>();
+    const parts: string[] = [];
+    let skipped = 0;
+    for (const d of diagnostics) {
+        const key = `${d.severity}:${d.message}`;
+        if (seen.has(key)) { skipped++; continue; }
+        seen.add(key);
+        if (parts.length < MAX_DIAGNOSTICS) {
+            parts.push(`${severityLabel(d.severity)}: ${sanitizeMessage(d.message)}`);
+        } else {
+            skipped++;
+        }
+    }
+    let suffix = ' ' + parts.join(' | ');
+    if (skipped > 0) { suffix += ` (+${skipped} more)`; }
+    return suffix;
 }
 
 /**
@@ -175,18 +192,20 @@ class AddToTerminalCodeActionProvider implements vscode.CodeActionProvider {
     provideCodeActions(
         _document: vscode.TextDocument,
         _range: vscode.Range | vscode.Selection,
-        context: vscode.CodeActionContext,
-        _token: vscode.CancellationToken
+        context: vscode.CodeActionContext
     ): vscode.CodeAction[] {
+        if (_document.uri.scheme !== 'file') {
+            return [];
+        }
         return context.diagnostics.map(diagnostic => {
             const label = severityLabel(diagnostic.severity);
-            const title = `Add to Terminal: ${label}: ${diagnostic.message}`;
+            const title = `Add to Terminal: ${label}: ${sanitizeMessage(diagnostic.message)}`;
             const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
             action.command = {
                 command: 'addToTerminal.sendDiagnostic',
                 title: 'Add to Terminal',
                 arguments: [
-                    _document.uri,
+                    _document.uri.toString(),
                     diagnostic.message,
                     diagnostic.severity,
                     diagnostic.range.start.line
@@ -200,15 +219,19 @@ class AddToTerminalCodeActionProvider implements vscode.CodeActionProvider {
 /**
  * Send a single diagnostic to the terminal (invoked from Quick Fix code action).
  * Output format: `filePath:line` error: message
+ *
+ * The URI is passed as a string so it survives command argument serialization
+ * (e.g. remote extension hosts), then reconstructed via Uri.parse.
  */
 function sendDiagnosticToTerminal(
-    uri: vscode.Uri,
+    uriOrString: vscode.Uri | string,
     message: string,
     severity: vscode.DiagnosticSeverity,
     line: number
 ): void {
-    if (!(uri instanceof vscode.Uri)) {
-        vscode.window.showWarningMessage('This command can only be used from the Quick Fix menu.');
+    const uri = typeof uriOrString === 'string' ? vscode.Uri.parse(uriOrString) : uriOrString;
+    if (!(uri instanceof vscode.Uri) || uri.scheme !== 'file') {
+        vscode.window.showWarningMessage('This command can only be used from the Quick Fix menu for files on disk.');
         return;
     }
 
@@ -234,12 +257,13 @@ function selectionLineRange(selection: vscode.Selection): { start: number; end: 
 }
 
 /**
- * Add the active editor's file + selected line range to the terminal.
+ * Add the active editor's file + selected line range(s) to the terminal.
  *
  * Invoked from the editor context menu or the Ctrl+Alt+T keybinding.
- * Outputs `filePath:startLine-endLine` plus any diagnostics at the cursor.
+ * Outputs `filePath:startLine-endLine` plus any diagnostics at the cursor,
+ * one entry per cursor/selection (multi-cursor aware).
  */
-function addReferenceToTerminal(): void {
+async function addReferenceToTerminal(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showWarningMessage('No active editor');
@@ -251,11 +275,26 @@ function addReferenceToTerminal(): void {
         return;
     }
 
+    if (editor.document.isDirty) {
+        const choice = await vscode.window.showWarningMessage(
+            'The file has unsaved changes; line numbers may not match the saved file.',
+            'Save',
+            'Send anyway'
+        );
+        if (!choice) { return; }
+        if (choice === 'Save') {
+            await editor.document.save();
+        }
+    }
+
     const filePath = getFormattedPathFromUri(editor.document.uri);
-    const { start, end } = selectionLineRange(editor.selection);
-    const ref = formatLineReference(filePath, start, end);
-    const suffix = formatDiagnosticSuffix(getDiagnosticsInSelection(editor));
-    sendToTerminal(ref + suffix);
+    const refs = editor.selections.map(selection => {
+        const { start, end } = selectionLineRange(selection);
+        const ref = formatLineReference(filePath, start, end);
+        const suffix = formatDiagnosticSuffix(getDiagnosticsInRange(editor.document.uri, selection));
+        return ref + suffix;
+    });
+    sendToTerminal(refs.join(', '));
 }
 
 /**
