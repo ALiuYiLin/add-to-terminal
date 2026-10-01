@@ -59,7 +59,7 @@ pnpm --filter add-to-terminal publish                       # VS Code extension 
 
 ## Notes
 
-- Design notes, incident write-ups and the live-bridge verification scripts live in a separate `dsh-info` repo (they are machine-specific harnesses, not part of either package).
+- Design notes, the full option comparison and both incident write-ups: [`docs/DESIGN.md`](docs/DESIGN.md). (The live-bridge verification scripts still live in a separate `dsh-info` repo — they are machine-specific.)
 - Do **not** hand-write a `link:` dependency into a DSH profile to enable the bridge: DSH rejects startup when an explicitly enabled plugin fails to activate. Use the plugin manager, or a file-path row in `cordis.patch.yml` (documented in the plugin README) for local debugging.
 
 ## License

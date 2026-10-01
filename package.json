@@ -13,6 +13,7 @@
     "check": "pnpm --filter dsh-add-to-terminal check",
     "compile": "pnpm --filter add-to-terminal compile",
     "vsix": "pnpm --filter add-to-terminal package",
-    "publish:dsh": "pnpm --filter dsh-add-to-terminal publish --access public"
+    "publish:dsh": "pnpm --filter dsh-add-to-terminal publish --access public",
+    "publish:vscode": "pnpm --filter add-to-terminal publish"
   }
 }
