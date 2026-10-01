@@ -1,0 +1,4 @@
+{
+  "title": "Add to Terminal 桥接",
+  "description": "接收 VS Code 的 Add to Terminal 扩展发来的代码引用，写入 DSH Web 的输入框草稿。"
+}

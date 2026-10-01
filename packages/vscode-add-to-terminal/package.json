@@ -1,0 +1,218 @@
+{
+  "name": "add-to-terminal",
+  "displayName": "Add to Terminal",
+  "description": "One-click send file references, line ranges, and diagnostics to the terminal — optimized for Claude Code CLI workflows",
+  "version": "0.5.0",
+  "publisher": "EeLynn",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ALiuYiLin/add-to-terminal"
+  },
+  "bugs": {
+    "url": "https://github.com/ALiuYiLin/add-to-terminal/issues"
+  },
+  "homepage": "https://github.com/ALiuYiLin/add-to-terminal#readme",
+  "icon": "icon.png",
+  "keywords": [
+    "claude-code",
+    "terminal",
+    "productivity",
+    "file-reference",
+    "diagnostics",
+    "quick-fix"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:addToTerminal.targets",
+    "onCommand:addToTerminal.addReference",
+    "onCommand:addToTerminal.addFileReference",
+    "onCommand:addToTerminal.sendDiagnostic"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "addToTerminal.targets",
+          "name": "DSH 页面",
+          "icon": "media/bridge.svg",
+          "contextualTitle": "Add to Terminal"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "addToTerminal.addReference",
+        "title": "Add to Terminal: File Reference"
+      },
+      {
+        "command": "addToTerminal.addFileReference",
+        "title": "Add to Terminal: File Path"
+      },
+      {
+        "command": "addToTerminal.sendDiagnostic",
+        "title": "Add to Terminal: Diagnostic"
+      },
+      {
+        "command": "addToTerminal.selectTarget",
+        "title": "Add to Terminal: 选择 DSH 页面"
+      },
+      {
+        "command": "addToTerminal.connectTarget",
+        "title": "Add to Terminal: 连接 DSH 页面",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "addToTerminal.refreshTargets",
+        "title": "Add to Terminal: 刷新 DSH 页面",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "addToTerminal.disconnectTarget",
+        "title": "Add to Terminal: 断开 DSH · 只发到终端",
+        "icon": "$(debug-disconnect)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "addToTerminal.addReference",
+          "group": "navigation",
+          "when": "editorTextFocus"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "addToTerminal.addFileReference",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "addToTerminal.refreshTargets",
+          "when": "view == addToTerminal.targets",
+          "group": "navigation"
+        },
+        {
+          "command": "addToTerminal.disconnectTarget",
+          "when": "view == addToTerminal.targets",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "addToTerminal.connectTarget",
+          "when": "view == addToTerminal.targets && viewItem == dshTarget",
+          "group": "inline"
+        },
+        {
+          "command": "addToTerminal.disconnectTarget",
+          "when": "view == addToTerminal.targets && viewItem == dshTargetCurrent",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "addToTerminal.addFileReference",
+          "when": "false"
+        },
+        {
+          "command": "addToTerminal.sendDiagnostic",
+          "when": "false"
+        },
+        {
+          "command": "addToTerminal.connectTarget",
+          "when": "false"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "addToTerminal.addReference",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Add to Terminal",
+      "properties": {
+        "addToTerminal.destination": {
+          "type": "string",
+          "enum": [
+            "dsh",
+            "terminal",
+            "both"
+          ],
+          "default": "dsh",
+          "markdownDescription": "Where references go. `dsh`: the input box of a DSH Web page (falls back per `addToTerminal.fallbackToTerminal`). `terminal`: the active terminal, as before. `both`: send to both."
+        },
+        "addToTerminal.fallbackToTerminal": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the DSH destination fails (page closed or not writable), send to the terminal instead."
+        },
+        "addToTerminal.dshUrl": {
+          "type": "string",
+          "default": "",
+          "description": "DSH Web base URL, e.g. http://127.0.0.1:3080. Leave empty to read it from the bridge discovery file in the OS temp directory."
+        },
+        "addToTerminal.dshToken": {
+          "type": "string",
+          "default": "",
+          "description": "Bridge token. Leave empty to read it from the bridge discovery file in the OS temp directory."
+        },
+        "addToTerminal.dshFocus": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "投递成功后让浏览器打开/切到该 DSH 地址。**默认关闭**：浏览器按完整 URL 复用标签页，带锚点的地址会被当成新地址而多开一个标签页；判断哪个标签页收到内容请看面板的「当前目标」标记、状态栏，以及页面标签标题上闪出的 `●`。"
+        },
+        "addToTerminal.dshPathStyle": {
+          "type": "string",
+          "enum": [
+            "relative",
+            "absolute"
+          ],
+          "default": "relative",
+          "description": "Path style inside a DSH @mention. relative is used only when the file actually lives under the DSH session workspace; otherwise the absolute path is emitted."
+        },
+        "addToTerminal.pathFormat": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "relative",
+            "basename"
+          ],
+          "default": "relative",
+          "description": "Format of file path (terminal destination)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run compile",
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2"
+  }
+}

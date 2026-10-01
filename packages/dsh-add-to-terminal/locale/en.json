@@ -1,0 +1,4 @@
+{
+  "title": "Add to Terminal Bridge",
+  "description": "Receives code references from the Add to Terminal VS Code extension and writes them into the DSH Web composer draft."
+}

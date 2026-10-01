@@ -1,0 +1,17 @@
+# dsh-add-to-terminal bundle patch layer.
+#
+# Adds the bridge Host half: an HTTP rendezvous on the Web server that the
+# Add to Terminal VS Code extension posts references to, plus an SSE stream
+# each open DSH Web page connects to so it can write the reference into its
+# composer draft.
+#
+# `inject` names ONLY the Web server: that is the one service the routes need,
+# and waiting for it alone lets the bridge come up as early as possible. The
+# session query service is read opportunistically through ctx.get() for the
+# advisory /context answer, so a missing (or late) session-query backend can
+# never hold this row back.
+
+- insert:
+    - id: dsh-add-to-terminal
+      name: 'dsh-add-to-terminal'
+      inject: ['webServer']
